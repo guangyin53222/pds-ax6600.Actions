@@ -94,14 +94,12 @@ jobs:
         make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
-        # Extract DEVICE_NAME and sanitize it (fix for device names with dashes like jdcloud_re-cs-02)
         DEVICE=$(grep '^CONFIG_TARGET_DEVICE_.*_DEVICE_.*=y' .config \
                  | head -n1 | sed -E 's/.*_DEVICE_(.+)=y/\1/')
 
         if [ -z "$DEVICE" ]; then
           DEVICE="_unknown"
         else
-          # Replace dash with underscore to avoid GitHub Actions env parse error
           DEVICE="_$(echo "$DEVICE" | tr '-' '_')"
         fi
 
@@ -160,7 +158,7 @@ jobs:
         keep_minimum_runs: 2
 
     - name: Remove old Releases
-      uses: dev-drprasad/delete-older-releases@v1
+      uses: dev-drprasad/delete-older-releases@v0.3.0
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
       with:
         keep_latest: 3
