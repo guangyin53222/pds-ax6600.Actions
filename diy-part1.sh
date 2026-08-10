@@ -18,6 +18,15 @@
 rm -rf package/JDC-AX6600-Athena-LED-Controller
 git clone --depth=1 https://github.com/unraveloop/JDC-AX6600-Athena-LED-Controller package/JDC-AX6600-Athena-LED-Controller
 
+# --- 2. TurboACC Luci 前端（仅 fullcone/BBR 开关，不启 SFE，不覆盖 firewall4/nftables）---
+rm -rf package/luci-app-turboacc
+git clone --depth=1 https://github.com/mufeng05/turboacc package/turboacc-src
+mkdir -p package/luci-app-turboacc
+# mufeng05/turboacc 根目录下直接有 luci-app-turboacc/ 子目录
+cp -r package/turboacc-src/luci-app-turboacc/* package/luci-app-turboacc/
+rm -rf package/turboacc-src
+
+
 # --- 2. 其余插件源 ---
 # Harbor File
 rm -rf package/luci-app-harbor-file
