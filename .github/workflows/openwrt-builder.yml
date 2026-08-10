@@ -1,0 +1,224 @@
+name: OpenWrt Builder
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      cache_bust:
+        description: '设为 "true" 可清除 ccache 缓存后重新编译'
+        required: false
+        default: 'false'
+
+env:
+  REPO_URL: https://github.com/LiBwrt/LibWrt
+  REPO_BRANCH: 25.12-nss
+  FEEDS_CONF: feeds.conf.default
+  CONFIG_FILE: .config
+  DIY_P1_SH: diy-part1.sh
+  DIY_P2_SH: diy-part2.sh
+  UPLOAD_BIN_DIR: false
+  UPLOAD_FIRMWARE: true
+  UPLOAD_RELEASE: true
+  TZ: Asia/Shanghai
+  # ccache 环境变量
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_MAXSIZE: 2G
+  CCACHE_COMPILERCHECK: content
+  CCACHE_NOHASHDIR: true
+  CCACHE_HARDLINK: true
+  CCACHE_BASEDIR: ${{ github.workspace }}
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # =========================================================
+    # 安装 ccache
+    # =========================================================
+    - name: Install ccache
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ccache
+        ccache --version
+        ccache --zero-stats
+
+    # =========================================================
+    # 恢复 ccache 缓存（cache_bust=true 时强制 miss）
+    # =========================================================
+    - name: Restore ccache cache
+      uses: actions/cache/restore@v4
+      id: cache-restore
+      with:
+        path: ${{ env.CCACHE_DIR }}
+        key: ccache-${{ runner.os }}-${{ hashFiles('**/.config') }}${{ github.event.inputs.cache_bust == 'true' && format('-bust-{0}', github.run_number) || '' }}
+        restore-keys: |
+          ccache-${{ runner.os }}-
+
+    # =========================================================
+    # 环境初始化
+    # =========================================================
+    - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        sudo docker image prune -af
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+        sudo timedatectl set-timezone "$TZ"
+        sudo mkdir -p /workdir
+        sudo chown $USER:$GROUPS /workdir
+
+    - name: Clone source code
+      working-directory: /workdir
+      run: |
+        df -hT $PWD
+        git clone --depth=1 $REPO_URL -b $REPO_BRANCH openwrt
+        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+
+    - name: Load custom feeds
+      run: |
+        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
+        chmod +x $DIY_P1_SH
+        cd openwrt
+        $GITHUB_WORKSPACE/$DIY_P1_SH
+
+    - name: Update feeds
+      run: cd openwrt && ./scripts/feeds update -a
+
+    - name: Install feeds
+      run: cd openwrt && ./scripts/feeds install -a
+
+    - name: Load custom configuration and files
+      run: |
+        [ -e files ] && mv files openwrt/files
+        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
+        chmod +x $DIY_P2_SH
+        cd openwrt
+        $GITHUB_WORKSPACE/$DIY_P2_SH
+
+    # =========================================================
+    # 配置 ccache 注入 OpenWrt
+    # =========================================================
+    - name: Enable ccache in OpenWrt
+      working-directory: /workdir/openwrt
+      run: |
+        mkdir -p ${{ env.CCACHE_DIR }}
+        cat > ${{ env.CCACHE_DIR }}/ccache.conf <<EOF
+        max_size = 2G
+        compiler_check = content
+        base_dir = ${{ github.workspace }}
+        hash_dir = false
+        hard_link = true
+        EOF
+
+        # cache_bust 时清空本地统计
+        if [ "${{ github.event.inputs.cache_bust }}" = "true" ]; then
+          ccache --zero-stats
+          ccache --clear
+          echo ">>> ccache 已强制清空 <<<"
+        fi
+
+        ccache --show-config
+        ccache --show-stats
+
+    - name: Download packages
+      run: |
+        cd openwrt
+        make defconfig
+        make download -j8
+        find dl -size -1024c -delete
+
+    - name: Compile firmware
+      id: compile
+      run: |
+        cd openwrt
+        echo "Using $(nproc) threads"
+        export PATH="/usr/lib/ccache:$PATH"
+        make -j$(nproc) CC="ccache gcc" CXX="ccache g++" || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
+        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
+        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
+        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+
+    # =========================================================
+    # 保存 ccache 缓存（无论成功失败都存）
+    # =========================================================
+    - name: Save ccache cache
+      uses: actions/cache/save@v4
+      if: always()
+      with:
+        path: ${{ env.CCACHE_DIR }}
+        key: ccache-${{ runner.os }}-${{ hashFiles('**/.config') }}${{ github.event.inputs.cache_bust == 'true' && format('-bust-{0}', github.run_number) || '' }}
+
+    # =========================================================
+    # 上传 Artifacts（用绝对路径，不依赖 FIRMWARE 变量）
+    # =========================================================
+    - name: Upload firmware to Artifacts
+      uses: actions/upload-artifact@v4
+      if: always() && !cancelled()
+      with:
+        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+        path: |
+          openwrt/bin/targets/*/*/*.bin
+
+    - name: Check space usage
+      if: (!cancelled())
+      run: df -hT
+
+    # =========================================================
+    # 清理 swapfile + 整理固件文件
+    # =========================================================
+    - name: Organize firmware files
+      id: organize
+      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      run: |
+        # 防止 /swapfile 被误加入上传列表
+        sudo swapoff /swapfile 2>/dev/null || true
+        sudo rm -f /swapfile
+
+        cd openwrt/bin/targets/*/*
+        rm -rf packages
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Generate release tag
+      id: tag
+      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+      run: |
+        echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    # =========================================================
+    # 上传固件到 Release（严格只传 .bin）
+    # =========================================================
+    - name: Upload firmware to Release
+      uses: softprops/action-gh-release@v2
+      if: steps.tag.outputs.status == 'success' && !cancelled()
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        files: |
+          ${{ env.FIRMWARE }}/*.bin
+
+    - name: Delete old workflow runs
+      uses: Mattraks/delete-workflow-runs@v2
+      with:
+        retain_days: 0
+        keep_minimum_runs: 2
+
+    - name: Remove old releases
+      uses: dev-drprasad/delete-older-releases@v0.3.4
+      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+      with:
+        keep_latest: 3
+        delete_tags: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
