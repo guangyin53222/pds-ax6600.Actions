@@ -84,15 +84,29 @@ jobs:
         [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
+    # =========================================================
+    # 【关键修复 1】无论 Organize 是否成功，先把固件存为 Artifacts
+    # 这样即使后面步骤崩了，你也能下载到固件
+    # =========================================================
+    - name: Upload firmware to Artifacts
+      uses: actions/upload-artifact@v4
+      if: always() && !cancelled()
+      with:
+        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+        path: |
+          openwrt/bin/targets/*/*/*.bin
+
     - name: Check space usage
       if: (!cancelled())
       run: df -hT
 
+    # =========================================================
+    # 【关键修复 2】强制删除 swapfile，防止被误加入上传列表
+    # =========================================================
     - name: Organize firmware files
       id: organize
       if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
-        # 防止 /swapfile 被误加入上传列表
         sudo swapoff /swapfile 2>/dev/null || true
         sudo rm -f /swapfile
 
@@ -101,13 +115,6 @@ jobs:
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: Upload firmware to Artifacts
-      uses: actions/upload-artifact@v4
-      if: steps.organize.outputs.status == 'success' && !cancelled()
-      with:
-        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: ${{ env.FIRMWARE }}
-
     - name: Generate release tag
       id: tag
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
@@ -115,6 +122,9 @@ jobs:
         echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
         echo "status=success" >> $GITHUB_OUTPUT
 
+    # =========================================================
+    # 【关键修复 3】严格限定只上传 .bin，杜绝 swapfile / buildinfo
+    # =========================================================
     - name: Upload firmware to Release
       uses: softprops/action-gh-release@v2
       if: steps.tag.outputs.status == 'success' && !cancelled()
