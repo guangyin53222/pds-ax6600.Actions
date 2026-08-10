@@ -93,14 +93,19 @@ jobs:
         echo -e "$(nproc) thread compile"
         make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
-        # Robust DEVICE_NAME extraction (handles dashes in device names)
+
+        # Extract DEVICE_NAME and sanitize it (fix for device names with dashes like jdcloud_re-cs-02)
         DEVICE=$(grep '^CONFIG_TARGET_DEVICE_.*_DEVICE_.*=y' .config \
                  | head -n1 | sed -E 's/.*_DEVICE_(.+)=y/\1/')
+
         if [ -z "$DEVICE" ]; then
-          echo "DEVICE_NAME=_unknown" >> $GITHUB_ENV
+          DEVICE="_unknown"
         else
-          echo "DEVICE_NAME=_$DEVICE" >> $GITHUB_ENV
+          # Replace dash with underscore to avoid GitHub Actions env parse error
+          DEVICE="_$(echo "$DEVICE" | tr '-' '_')"
         fi
+
+        echo "DEVICE_NAME=$DEVICE" >> $GITHUB_ENV
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
     - name: Check space usage
