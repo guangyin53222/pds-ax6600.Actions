@@ -149,3 +149,11 @@ jobs:
         delete_tags: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+- name: Cleanup old caches
+  if: always()
+  run: |
+    echo "当前 cache 列表："
+    gh cache list --repo ${{ github.repository }}
+    echo "（旧 cache 会在 7 天未被访问后由 GitHub 自动回收）"
+  env:
+    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
