@@ -47,7 +47,7 @@ config wifi-iface 'default_radio2'
 	option device 'radio2'
 	option network 'lan'
 	option mode 'ap'
-	option ssid 'LibWrt-5.2G+'
+	option ssid 'LibWrt-5.2G'
 	option encryption 'none'
 	option disabled '0'
 
