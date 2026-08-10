@@ -13,7 +13,9 @@
 # This is free software, licensed under the MIT License.
 # See /LICENSE for more information.
 #
-
+# Harbor File
+rm -rf package/luci-app-harbor-file
+git clone --depth=1 https://github.com/destan19/luci-app-harbor-file package/luci-app-harbor-file
 
 rm -rf package/OpenAppFilter
 git clone --depth 1 -b v6.1.8 https://github.com/destan19/OpenAppFilter package/OpenAppFilter
