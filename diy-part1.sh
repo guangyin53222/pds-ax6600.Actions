@@ -59,12 +59,13 @@ echo " Adding luci-app-gecoosac"
 echo "============================================"
 rm -rf package/luci-app-gecoosac
 git clone --depth=1 https://github.com/laipeng668/luci-app-gecoosac package/luci-app-gecoosac
-# --- 5.5 添加 kenzok8/small 软件包源 ---
-echo "============================================"
-echo " Adding kenzok8/small feed"
-echo "============================================"
-grep -q "src-git small" feeds.conf.default || \
-echo "src-git small https://github.com/kenzok8/small.git" >> feeds.conf.default
+# 移除 openwrt feeds 自带的核心库
+rm -rf feeds/packages/net/{xray-core,v2ray-geodata,sing-box,chinadns-ng,dns2socks,hysteria,ipt2socks,microsocks,naiveproxy,shadowsocks-rust,shadowsocksr-libev,simple-obfs,tcping,v2ray-plugin,xray-plugin,geoview,shadow-tls}
+git clone https://github.com/Openwrt-Passwall/openwrt-passwall-packages package/passwall-packages
+
+# 移除 openwrt feeds 过时的luci版本
+rm -rf feeds/luci/applications/luci-app-passwall
+git clone https://github.com/Openwrt-Passwall/openwrt-passwall package/passwall-luci
 
 # --- 6. 更新并安装插件源 ---
 echo "============================================"
