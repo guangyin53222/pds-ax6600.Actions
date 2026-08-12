@@ -18,7 +18,7 @@ sed -i 's/192.168.1.1/192.168.100.1/g' package/base-files/files/bin/config_gener
 # ============================================================
 # 设置默认主题
 # ============================================================
-sed -i 's/luci-theme-bootstrap/luci-theme-argon/g' feeds/luci/collections/luci/Makefile
+sed -i 's/luci-theme-aurora/luci-theme-argon/g' feeds/luci/collections/luci/Makefile
 
 echo "============================================"
 echo " DIY Part 2 Complete!"
