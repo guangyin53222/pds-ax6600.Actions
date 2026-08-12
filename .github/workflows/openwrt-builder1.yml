@@ -19,11 +19,11 @@ on:
       REPO_URL:
         description: '源码地址'
         required: true
-        default: 'https://github.com/immortalwrt/immortalwrt'
+        default: 'https://github.com/VIKINGYFY/immortalwrt'
       REPO_BRANCH:
         description: '源码分支'
         required: true
-        default: 'master'
+        default: 'main'
       FEEDS_CONF:
         description: 'feeds配置文件名'
         required: true
