@@ -1,4 +1,4 @@
-name: AX6600-ImmortalWrt-Builder
+name: AX6600-OWRTWrt-Builder
 
 on:
   workflow_dispatch:
