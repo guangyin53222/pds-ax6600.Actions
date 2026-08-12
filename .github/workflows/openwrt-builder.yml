@@ -1,224 +1,183 @@
+#
+# https://github.com/P3TERX/Actions-OpenWrt
+#
+# File: .github/workflows/openwrt-builder.yml
+# Description: Build OpenWrt using GitHub Actions
+#
+# Copyright (c) 2019-2024 P3TERX <https://p3terx.com>
+#
+# This is free software, licensed under the MIT License.
+# See /LICENSE for more information.
+#
+
 name: OpenWrt Builder
 
 on:
   repository_dispatch:
   workflow_dispatch:
     inputs:
-      cache_bust:
-        description: '设为 "true" 可清除 ccache 缓存后重新编译'
+      REPO_URL:
+        description: '源码地址'
+        required: true
+        default: 'https://github.com/immortalwrt/immortalwrt'
+      REPO_BRANCH:
+        description: '源码分支'
+        required: true
+        default: 'master'
+      FEEDS_CONF:
+        description: 'feeds配置文件'
+        required: true
+        default: 'feeds.conf.default'
+      CONFIG_FILE:
+        description: '.config配置文件'
+        required: true
+        default: '.config'
+      DIY_P1_SH:
+        description: 'diy-part1.sh'
+        required: true
+        default: 'diy-part1.sh'
+      DIY_P2_SH:
+        description: 'diy-part2.sh'
+        required: true
+        default: 'diy-part2.sh'
+      UPLOAD_BIN_DIR:
+        description: '上传bin目录'
         required: false
         default: 'false'
+      UPLOAD_FIRMWARE:
+        description: '上传固件'
+        required: false
+        default: 'true'
+      UPLOAD_COWTRANSFER:
+        description: '奶牛快传'
+        required: false
+        default: 'false'
+      UPLOAD_WETRANSFER:
+        description: 'WeTransfer'
+        required: false
+        default: 'false'
+      UPLOAD_RELEASE:
+        description: '创建Release'
+        required: false
+        default: 'true'
+      TZ:
+        description: '时区'
+        required: true
+        default: 'Asia/Shanghai'
 
 env:
-  REPO_URL: https://github.com/LiBwrt/LibWrt
-  REPO_BRANCH: 25.12-nss
-  FEEDS_CONF: feeds.conf.default
-  CONFIG_FILE: .config
-  DIY_P1_SH: diy-part1.sh
-  DIY_P2_SH: diy-part2.sh
-  UPLOAD_BIN_DIR: false
-  UPLOAD_FIRMWARE: true
-  UPLOAD_RELEASE: true
-  TZ: Asia/Shanghai
-  # ccache 环境变量
-  CCACHE_DIR: ${{ github.workspace }}/.ccache
-  CCACHE_MAXSIZE: 2G
-  CCACHE_COMPILERCHECK: content
-  CCACHE_NOHASHDIR: true
-  CCACHE_HARDLINK: true
-  CCACHE_BASEDIR: ${{ github.workspace }}
+  REPO_URL: ${{ github.event.inputs.REPO_URL }}
+  REPO_BRANCH: ${{ github.event.inputs.REPO_BRANCH }}
+  FEEDS_CONF: ${{ github.event.inputs.FEEDS_CONF }}
+  CONFIG_FILE: ${{ github.event.inputs.CONFIG_FILE }}
+  DIY_P1_SH: ${{ github.event.inputs.DIY_P1_SH }}
+  DIY_P2_SH: ${{ github.event.inputs.DIY_P2_SH }}
+  UPLOAD_BIN_DIR: ${{ github.event.inputs.UPLOAD_BIN_DIR }}
+  UPLOAD_FIRMWARE: ${{ github.event.inputs.UPLOAD_FIRMWARE }}
+  UPLOAD_COWTRANSFER: ${{ github.event.inputs.UPLOAD_COWTRANSFER }}
+  UPLOAD_WETRANSFER: ${{ github.event.inputs.UPLOAD_WETRANSFER }}
+  UPLOAD_RELEASE: ${{ github.event.inputs.UPLOAD_RELEASE }}
+  TZ: ${{ github.event.inputs.TZ }}
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
-
+    runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    # =========================================================
-    # 安装 ccache
-    # =========================================================
-    - name: Install ccache
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y ccache
-        ccache --version
-        ccache --zero-stats
+      ##################################################
+      # 【新增关键修复：磁盘扩容+清理冗余，解决大固件爆满】
+      ##################################################
+      - name: Expand disk & Clean useless files
+        run: |
+          sudo apt install -y parted
+          sudo parted /dev/sda resizepart 3 100%
+          sudo resize2fs /dev/sda3
+          # 删除系统预装大型组件，释放3~6G空间
+          sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h
 
-    # =========================================================
-    # 恢复 ccache 缓存（cache_bust=true 时强制 miss）
-    # =========================================================
-    - name: Restore ccache cache
-      uses: actions/cache/restore@v4
-      id: cache-restore
-      with:
-        path: ${{ env.CCACHE_DIR }}
-        key: ccache-${{ runner.os }}-${{ hashFiles('**/.config') }}${{ github.event.inputs.cache_bust == 'true' && format('-bust-{0}', github.run_number) || '' }}
-        restore-keys: |
-          ccache-${{ runner.os }}-
+      - name: Initialization environment
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev python3-distutils rsync unzip zlib1g-dev file wget
 
-    # =========================================================
-    # 环境初始化
-    # =========================================================
-    - name: Initialization environment
-      env:
-        DEBIAN_FRONTEND: noninteractive
-      run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        sudo docker image prune -af
-        sudo -E apt-get -qq update
-        sudo -E apt-get -qq install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
-        sudo -E apt-get -qq autoremove --purge
-        sudo -E apt-get -qq clean
-        sudo timedatectl set-timezone "$TZ"
-        sudo mkdir -p /workdir
-        sudo chown $USER:$GROUPS /workdir
+      - name: Clone source code
+        run: |
+          git clone $REPO_URL openwrt --branch $REPO_BRANCH --depth 1
+          cd openwrt
+          df -h
 
-    - name: Clone source code
-      working-directory: /workdir
-      run: |
-        df -hT $PWD
-        git clone --depth=1 $REPO_URL -b $REPO_BRANCH openwrt
-        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+      - name: Load custom feeds
+        run: |
+          [ -e $FEEDS_CONF ] && cp -f $FEEDS_CONF openwrt/feeds.conf.default
+          chmod +x $DIY_P1_SH
+          ./$DIY_P1_SH
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          df -h
 
-    - name: Load custom feeds
-      run: |
-        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
-        chmod +x $DIY_P1_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P1_SH
+      - name: Load custom configuration
+        run: |
+          [ -e $CONFIG_FILE ] && cp -f $CONFIG_FILE openwrt/.config
+          chmod +x $DIY_P2_SH
+          ./$DIY_P2_SH
+          cd openwrt
+          make defconfig
+          df -h
 
-    - name: Update feeds
-      run: cd openwrt && ./scripts/feeds update -a
+      - name: Download package
+        run: |
+          cd openwrt
+          make download -j$(nproc)
+          df -h
 
-    - name: Install feeds
-      run: cd openwrt && ./scripts/feeds install -a
+      - name: Compile firmware
+        run: |
+          cd openwrt
+          # 多线程编译失败自动切换单线程编译，规避内存/磁盘并发溢出
+          make -j$(nproc) || make -j1 V=s
+          df -h
 
-    - name: Load custom configuration and files
-      run: |
-        [ -e files ] && mv files openwrt/files
-        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
-        chmod +x $DIY_P2_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P2_SH
+      - name: Upload bin directory
+        uses: actions/upload-artifact@v4
+        if: env.UPLOAD_BIN_DIR == 'true'
+        with:
+          name: OpenWrt_bin
+          path: openwrt/bin
 
-    # =========================================================
-    # 配置 ccache 注入 OpenWrt
-    # =========================================================
-    - name: Enable ccache in OpenWrt
-      working-directory: /workdir/openwrt
-      run: |
-        mkdir -p ${{ env.CCACHE_DIR }}
-        cat > ${{ env.CCACHE_DIR }}/ccache.conf <<EOF
-        max_size = 2G
-        compiler_check = content
-        base_dir = ${{ github.workspace }}
-        hash_dir = false
-        hard_link = true
-        EOF
+      - name: Organize firmware
+        id: organize
+        if: env.UPLOAD_FIRMWARE == 'true' || env.UPLOAD_COWTRANSFER == 'true' || env.UPLOAD_WETRANSFER == 'true'
+        run: |
+          cd openwrt/bin/targets/*/*
+          mkdir -p firmware
+          find . -maxdepth 1 -type f -regextype posix-extended -regex '.*(bin|img)$' ! -name '*packages.*' -exec mv {} firmware/ \;
+          echo "FIRMWARE_PATH=$PWD/firmware" >> $GITHUB_ENV
 
-        # cache_bust 时清空本地统计
-        if [ "${{ github.event.inputs.cache_bust }}" = "true" ]; then
-          ccache --zero-stats
-          ccache --clear
-          echo ">>> ccache 已强制清空 <<<"
-        fi
+      - name: Upload firmware to artifact
+        uses: actions/upload-artifact@v4
+        if: env.UPLOAD_FIRMWARE == 'true'
+        with:
+          name: OpenWrt_Firmware
+          path: ${{ env.FIRMWARE_PATH }}
 
-        ccache --show-config
-        ccache --show-stats
+      - name: Generate Release Tag
+        id: gen_tag
+        if: env.UPLOAD_RELEASE == 'true'
+        run: |
+          echo "RELEASE_TAG=$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
 
-    - name: Download packages
-      run: |
-        cd openwrt
-        make defconfig
-        make download -j8
-        find dl -size -1024c -delete
-
-    - name: Compile firmware
-      id: compile
-      run: |
-        cd openwrt
-        echo "Using $(nproc) threads"
-        export PATH="/usr/lib/ccache:$PATH"
-        make -j$(nproc) CC="ccache gcc" CXX="ccache g++" || make -j1 V=s
-        echo "status=success" >> $GITHUB_OUTPUT
-        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
-        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
-        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
-
-    # =========================================================
-    # 保存 ccache 缓存（无论成功失败都存）
-    # =========================================================
-    - name: Save ccache cache
-      uses: actions/cache/save@v4
-      if: always()
-      with:
-        path: ${{ env.CCACHE_DIR }}
-        key: ccache-${{ runner.os }}-${{ hashFiles('**/.config') }}${{ github.event.inputs.cache_bust == 'true' && format('-bust-{0}', github.run_number) || '' }}
-
-    # =========================================================
-    # 上传 Artifacts（用绝对路径，不依赖 FIRMWARE 变量）
-    # =========================================================
-    - name: Upload firmware to Artifacts
-      uses: actions/upload-artifact@v4
-      if: always() && !cancelled()
-      with:
-        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: |
-          openwrt/bin/targets/*/*/*.bin
-
-    - name: Check space usage
-      if: (!cancelled())
-      run: df -hT
-
-    # =========================================================
-    # 清理 swapfile + 整理固件文件
-    # =========================================================
-    - name: Organize firmware files
-      id: organize
-      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
-      run: |
-        # 防止 /swapfile 被误加入上传列表
-        sudo swapoff /swapfile 2>/dev/null || true
-        sudo rm -f /swapfile
-
-        cd openwrt/bin/targets/*/*
-        rm -rf packages
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-        echo "status=success" >> $GITHUB_OUTPUT
-
-    - name: Generate release tag
-      id: tag
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-      run: |
-        echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
-        echo "status=success" >> $GITHUB_OUTPUT
-
-    # =========================================================
-    # 上传固件到 Release（严格只传 .bin）
-    # =========================================================
-    - name: Upload firmware to Release
-      uses: softprops/action-gh-release@v2
-      if: steps.tag.outputs.status == 'success' && !cancelled()
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ steps.tag.outputs.release_tag }}
-        files: |
-          ${{ env.FIRMWARE }}/*.bin
-
-    - name: Delete old workflow runs
-      uses: Mattraks/delete-workflow-runs@v2
-      with:
-        retain_days: 0
-        keep_minimum_runs: 2
-
-    - name: Remove old releases
-      uses: dev-drprasad/delete-older-releases@v0.3.4
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-      with:
-        keep_latest: 3
-        delete_tags: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Release
+        uses: softprops/action-gh-release@v1
+        if: env.UPLOAD_RELEASE == 'true'
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Build ${{ env.RELEASE_TAG }}
+          files: ${{ env.FIRMWARE_PATH }}/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
