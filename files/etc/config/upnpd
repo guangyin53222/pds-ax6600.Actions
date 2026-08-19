@@ -10,7 +10,7 @@ config upnpd 'config'
 	option igdv1 '1'
 	option ipv6_disable '1'
 	option ext_allow_private_ipv4 '1'
-	option uuid 'e2c3dc83-7d61-451a-86b9-9ef43c3e41d3'
+	option uuid '03a2da96-4a13-46a5-a254-6d0f6dba95ac'
 
 config perm_rule
 	option action 'allow'
