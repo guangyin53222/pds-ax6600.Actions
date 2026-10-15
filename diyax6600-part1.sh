@@ -46,9 +46,22 @@ else
   exit 1
 fi
 
-
+# ============ OpenAppFilter（不锁版本） ============
 rm -rf package/OpenAppFilter
-git clone --depth 1 -b v6.1.8 https://github.com/destan19/OpenAppFilter package/OpenAppFilter
+git clone --depth=1 https://github.com/destan19/OpenAppFilter.git package/OpenAppFilter
+
+# 顺手清掉 feeds 里可能已有的旧 oaf 相关软链
+find package/feeds -maxdepth 3 \( \
+  -iname '*open-app-filter*' -o \
+  -iname '*luci-app-oaf*' -o \
+  -iname '*luci-app-appfilter*' -o \
+  -iname '*oaf*' \) -exec rm -rf {} + 2>/dev/null
+
+# 后面统一
+./scripts/feeds update -a
+./scripts/feeds install -a
+
+
 
 rm -rf package/luci-app-store
 git clone --depth=1 https://github.com/linkease/istore.git package/luci-app-store
