@@ -22,7 +22,7 @@
 #echo 'src-git passwall https://github.com/xiaorouji/openwrt-passwall' >>feeds.conf.default
 # ===================== 第三方插件统一拉取（先删旧残留） =====================
 # 1. JDC AX6600 Athena LED Controller
-# 官方源: https://github.com/unraveloop/JDC-AX6600-Athena-LED-Controller
+# 官方源: https://github.com/guangyin53222/JDC-AX6600-Athena-LED-Controller
 # 锁定版本: v2.4.0（官方已发布的稳定版，有预编译 Rust 二进制）
 # 注意: main 分支已到 v2.5.0，但 release 尚未发布，直接编会 404
 # ============================================================
@@ -31,8 +31,8 @@ echo " Adding JDC-AX6600 Athena LED Controller"
 echo "============================================"
 
 rm -rf package/JDC-AX6600-Athena-LED-Controller
-git clone --depth=1 --branch v2.4.0 \
-  https://github.com/unraveloop/JDC-AX6600-Athena-LED-Controller.git \
+git clone --depth=1 --branch v2.5.0 \
+  https://github.com/guangyin53222/JDC-AX6600-Athena-LED-Controller.git \
   package/JDC-AX6600-Athena-LED-Controller
 
 # 验证版本号
